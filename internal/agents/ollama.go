@@ -80,8 +80,8 @@ func (c *OllamaClient) Generate(ctx context.Context, prompt string) (string, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, resp.Body) // nolint:errcheck
-		return "", fmt.Errorf("ollama returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var response OllamaResponse
