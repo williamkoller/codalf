@@ -1,0 +1,17 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - staticcheck
+    - gosimple
+    - errcheck
+    - govet
+    - unused
+formatters:
+  enable:
+    - gofmt
+
+severity:
+  default: warning

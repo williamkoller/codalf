@@ -1,0 +1,17 @@
+*.exe
+*.test
+*.out
+vendor/
+bin/
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.env
+coverage/
+specs/
+.claude
+.opencode
+.specify
