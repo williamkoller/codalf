@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -58,7 +59,7 @@ func (c *OllamaClient) Generate(ctx context.Context, prompt string) (string, err
 	reqBody := OllamaRequest{
 		Model:   c.model,
 		Prompt:  prompt,
-		Stream:  false,
+		Stream:  true,
 		Options: OllamaOptions{Temperature: 0, Seed: 42},
 	}
 
@@ -84,11 +85,23 @@ func (c *OllamaClient) Generate(ctx context.Context, prompt string) (string, err
 		return "", fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var response OllamaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	var sb strings.Builder
+	decoder := json.NewDecoder(resp.Body)
+	for {
+		var chunk OllamaResponse
+		if err := decoder.Decode(&chunk); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("failed to decode streaming response: %w", err)
+		}
+		sb.WriteString(chunk.Response)
+		if chunk.Done {
+			break
+		}
 	}
 
-	slog.Info("Ollama request completed", "response_length", len(response.Response))
-	return response.Response, nil
+	result := sb.String()
+	slog.Info("Ollama request completed", "response_length", len(result))
+	return result, nil
 }
