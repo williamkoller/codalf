@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -211,6 +212,9 @@ func runReview(args []string) error {
 	printHeader(branch, base, activeProvider, activeModel, fullReview)
 
 	if activeProvider == "ollama" {
+		if err := checkSystemRequirements(activeModel); err != nil {
+			return err
+		}
 		if err := ensureModel(activeModel, ollamaHost); err != nil {
 			return fmt.Errorf("model setup failed: %w", err)
 		}
@@ -318,6 +322,78 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dms", d.Milliseconds())
 	}
 	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+type modelReq struct {
+	minRAMGB int
+}
+
+var modelRequirements = map[string]modelReq{
+	"qwen3:8b":           {minRAMGB: 8},
+	"qwen3:14b":          {minRAMGB: 16},
+	"qwen2.5-coder:7b":  {minRAMGB: 8},
+	"qwen2.5-coder:14b": {minRAMGB: 12},
+	"deepseek-coder-v2": {minRAMGB: 12},
+	"codellama:34b":      {minRAMGB: 32},
+}
+
+func totalRAMGB() int {
+	var out []byte
+	var err error
+	switch runtime.GOOS {
+	case "linux":
+		data, e := os.ReadFile("/proc/meminfo")
+		if e != nil {
+			return 0
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "MemTotal:") {
+				var kb int
+				fmt.Sscanf(strings.TrimPrefix(line, "MemTotal:"), "%d", &kb)
+				return kb / 1024 / 1024
+			}
+		}
+	case "darwin":
+		out, err = exec.Command("sysctl", "-n", "hw.memsize").Output()
+		if err != nil {
+			return 0
+		}
+		var bytes int64
+		fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &bytes)
+		return int(bytes / 1024 / 1024 / 1024)
+	case "windows":
+		out, err = exec.Command("wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value").Output()
+		if err != nil {
+			return 0
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "TotalPhysicalMemory=") {
+				var bytes int64
+				fmt.Sscanf(strings.TrimPrefix(line, "TotalPhysicalMemory="), "%d", &bytes)
+				return int(bytes / 1024 / 1024 / 1024)
+			}
+		}
+	}
+	return 0
+}
+
+func checkSystemRequirements(modelName string) error {
+	req, ok := modelRequirements[modelName]
+	if !ok {
+		return nil
+	}
+	ramGB := totalRAMGB()
+	if ramGB == 0 {
+		slog.Warn("Could not detect system RAM, skipping requirement check")
+		return nil
+	}
+	if ramGB < req.minRAMGB {
+		return fmt.Errorf(
+			"model %s requires at least %d GB RAM, but only %d GB detected — use a smaller model (e.g. qwen3:8b)",
+			modelName, req.minRAMGB, ramGB,
+		)
+	}
+	return nil
 }
 
 func ensureModel(modelName, host string) error {

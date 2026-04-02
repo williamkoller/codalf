@@ -63,7 +63,7 @@ When run on the base branch (e.g. `main`) with no arguments, codalf performs a *
 ### Branch review
 
 ```
-  codalf  feature/my-branch → main  qwen2.5-coder:14b  [offline]
+  codalf  feature/my-branch → main  ollama · qwen3:8b  [local]
 
   ┌─ src/components/Form.tsx
   │ @@ -12 +12 @@
@@ -80,7 +80,7 @@ When run on the base branch (e.g. `main`) with no arguments, codalf performs a *
 ### Full repository review
 
 ```
-  codalf  main  full review  qwen2.5-coder:14b  [offline]
+  codalf  main  full review  ollama · qwen3:8b  [local]
 
   ┌─ src/app/api/users/route.ts
   │ @@ -1 +1 @@
@@ -140,16 +140,22 @@ The correct agent is selected automatically based on file extensions in the diff
 
 ## Recommended models
 
-| Model | Size | Best for |
-|-------|------|----------|
-| `qwen2.5-coder:7b` | ~4 GB | Quick reviews, limited RAM |
-| `qwen2.5-coder:14b` | ~8 GB | Balanced quality / speed |
-| `deepseek-coder-v2` | ~8 GB | Accurate, great for TypeScript |
-| `codellama:34b` | ~20 GB | Highest precision |
+| Model | Size | Min RAM | Min VRAM (GPU) | Best for |
+|-------|------|---------|----------------|----------|
+| `qwen3:8b` | ~5 GB | 8 GB | 5 GB | Best balance — fast, accurate, **recommended default** |
+| `qwen3:14b` | ~9 GB | 16 GB | 9 GB | Higher precision |
+| `qwen2.5-coder:7b` | ~4 GB | 8 GB | 4 GB | Limited RAM / fallback |
+| `qwen2.5-coder:14b` | ~8 GB | 12 GB | 8 GB | Balanced quality / speed |
+| `deepseek-coder-v2` | ~8 GB | 12 GB | 8 GB | Accurate, great for TypeScript |
+| `codellama:34b` | ~20 GB | 32 GB | 20 GB | Highest precision |
+
+> **Recommended:** `qwen3:8b` offers the best speed/quality ratio for local reviews. Use `qwen3:14b` if you have 12 GB+ VRAM.
+>
+> Codalf checks your available RAM before running. If the system does not meet the minimum requirement for the selected model, you will see an error before any review starts.
 
 ```bash
-ollama pull qwen2.5-coder:14b
-codalf review -m qwen2.5-coder:14b
+ollama pull qwen3:8b
+codalf review -m qwen3:8b
 ```
 
 ---
@@ -172,14 +178,14 @@ Codalf is designed to be fully offline:
 ```bash
 brew install ollama
 ollama serve
-ollama pull qwen2.5-coder:14b
+ollama pull qwen3:8b
 ```
 
 **Linux**
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ollama serve
-ollama pull qwen2.5-coder:14b
+ollama pull qwen3:8b
 ```
 
 **Windows**
@@ -187,7 +193,7 @@ ollama pull qwen2.5-coder:14b
 Download and install from [ollama.com/download](https://ollama.com/download), then in PowerShell:
 ```powershell
 ollama serve
-ollama pull qwen2.5-coder:14b
+ollama pull qwen3:8b
 ```
 
 ---

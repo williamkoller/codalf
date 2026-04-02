@@ -6,11 +6,19 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/williamkoller/codalf/internal/agents"
 	"github.com/williamkoller/codalf/internal/provider"
 	"github.com/williamkoller/codalf/internal/skills"
 	"github.com/williamkoller/codalf/internal/types"
+)
+
+const (
+	fileReviewTimeout = 3 * time.Minute
+	batchSize         = 5
+	concurrency       = 2
 )
 
 type GetDiffNode struct{}
@@ -55,28 +63,71 @@ func (n *RunAgentNode) Execute(ctx context.Context, input any) (any, error) {
 
 	goDiff, reactDiff := splitDiffByLanguage(diff)
 
-	var allFindings []types.Finding
+	goBatches := chunkFiles(goDiff.Files, batchSize)
+	reactBatches := chunkFiles(reactDiff.Files, batchSize)
 
-	if len(goDiff.Files) > 0 {
-		slog.Info("RunAgentNode: Running Go agent", "files_count", len(goDiff.Files))
-		goSkillCtx := skills.BuildSkillContext(".go")
-		goFindings, err := agents.NewGeneralAgent(n.provider, goSkillCtx).Review(ctx, goDiff)
-		if err != nil {
-			slog.Error("RunAgentNode: Go agent error", "error", err)
-			return []types.Finding{}, err
-		}
-		allFindings = append(allFindings, goFindings...)
+	type result struct {
+		findings []types.Finding
 	}
 
-	if len(reactDiff.Files) > 0 {
-		slog.Info("RunAgentNode: Running React agent", "files_count", len(reactDiff.Files))
-		reactSkillCtx := buildReactSkillContext(reactDiff)
-		reactFindings, err := agents.NewReactAgent(n.provider, reactSkillCtx).Review(ctx, reactDiff)
-		if err != nil {
-			slog.Error("RunAgentNode: React agent error", "error", err)
-			return []types.Finding{}, err
-		}
-		allFindings = append(allFindings, reactFindings...)
+	total := len(goBatches) + len(reactBatches)
+	resultsCh := make(chan result, total)
+	sem := make(chan struct{}, concurrency)
+
+	var wg sync.WaitGroup
+
+	goSkillCtx := skills.BuildSkillContext(".go")
+	for _, batch := range goBatches {
+		wg.Add(1)
+		go func(batch []types.FileChange) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			batchCtx, cancel := context.WithTimeout(ctx, fileReviewTimeout)
+			defer cancel()
+
+			slog.Info("RunAgentNode: Running Go agent", "files", len(batch))
+			batchDiff := &types.Diff{Branch: goDiff.Branch, Base: goDiff.Base, Files: batch}
+			findings, err := agents.NewGeneralAgent(n.provider, goSkillCtx).Review(batchCtx, batchDiff)
+			if err != nil {
+				slog.Warn("RunAgentNode: Go batch skipped", "files", len(batch), "error", err)
+				resultsCh <- result{}
+				return
+			}
+			resultsCh <- result{findings: findings}
+		}(batch)
+	}
+
+	for _, batch := range reactBatches {
+		wg.Add(1)
+		go func(batch []types.FileChange) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			batchCtx, cancel := context.WithTimeout(ctx, fileReviewTimeout)
+			defer cancel()
+
+			slog.Info("RunAgentNode: Running React agent", "files", len(batch))
+			batchDiff := &types.Diff{Branch: reactDiff.Branch, Base: reactDiff.Base, Files: batch}
+			reactSkillCtx := buildReactSkillContext(batchDiff)
+			findings, err := agents.NewReactAgent(n.provider, reactSkillCtx).Review(batchCtx, batchDiff)
+			if err != nil {
+				slog.Warn("RunAgentNode: React batch skipped", "files", len(batch), "error", err)
+				resultsCh <- result{}
+				return
+			}
+			resultsCh <- result{findings: findings}
+		}(batch)
+	}
+
+	wg.Wait()
+	close(resultsCh)
+
+	var allFindings []types.Finding
+	for r := range resultsCh {
+		allFindings = append(allFindings, r.findings...)
 	}
 
 	slog.Info("RunAgentNode: Completed", "findings_count", len(allFindings))
@@ -111,6 +162,14 @@ func buildReactSkillContext(diff *types.Diff) string {
 	}
 
 	return strings.Join(contexts, "\n")
+}
+
+func chunkFiles(files []types.FileChange, size int) [][]types.FileChange {
+	var chunks [][]types.FileChange
+	for size < len(files) {
+		files, chunks = files[size:], append(chunks, files[:size])
+	}
+	return append(chunks, files)
 }
 
 var reactExtensions = map[string]bool{

@@ -44,7 +44,7 @@ func NewOllamaClient(host, model string) *OllamaClient {
 	return &OllamaClient{
 		host:   host,
 		model:  model,
-		client: &http.Client{Timeout: 10 * time.Minute},
+		client: &http.Client{Timeout: 3 * time.Minute},
 	}
 }
 

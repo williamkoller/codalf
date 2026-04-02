@@ -26,6 +26,42 @@ var reviewableExtensions = map[string]bool{
 	".scss": true,
 }
 
+var excludedPathPrefixes = []string{
+	"vendor/",
+	"node_modules/",
+	"dist/",
+	"build/",
+	".gen/",
+	"generated/",
+	"mocks/",
+	"mock/",
+	"migrations/",
+	"testdata/",
+}
+
+var excludedFileSuffixes = []string{
+	"_test.go",
+	".pb.go",
+	".gen.go",
+	"_mock.go",
+	"mock_",
+}
+
+func isExcluded(path string) bool {
+	for _, prefix := range excludedPathPrefixes {
+		if strings.HasPrefix(path, prefix) || strings.Contains(path, "/"+prefix) {
+			return true
+		}
+	}
+	base := filepath.Base(path)
+	for _, suffix := range excludedFileSuffixes {
+		if strings.HasSuffix(base, suffix) || strings.HasPrefix(base, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetAllFiles builds a synthetic Diff from all tracked files in the repo,
 // used when reviewing the base branch (e.g. main) in full.
 func GetAllFiles(ctx context.Context) (*types.Diff, error) {
@@ -47,6 +83,10 @@ func GetAllFiles(ctx context.Context) (*types.Diff, error) {
 		if !reviewableExtensions[ext] {
 			continue
 		}
+		if isExcluded(path) {
+			slog.Debug("Git: Skipping excluded path", "path", path)
+			continue
+		}
 
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -55,6 +95,12 @@ func GetAllFiles(ctx context.Context) (*types.Diff, error) {
 		}
 
 		lines := strings.Split(string(data), "\n")
+		const maxLines = 150
+		if len(lines) > maxLines {
+			slog.Debug("Git: Skipping large file", "path", path, "lines", len(lines))
+			continue
+		}
+
 		var content, rawContent strings.Builder
 		for _, l := range lines {
 			content.WriteString(" " + l + "\n")
